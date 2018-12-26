@@ -100,6 +100,7 @@ class CodeWriter
 
     void writeLabel(string label)
     {
+        cout<<currentFunctionName+"$"+label;
         writeLine("(" + currentFunctionName + "$" + label + ")");
     }
 
@@ -121,6 +122,7 @@ class CodeWriter
     void writeFunction(string functionName, string numlocals)
     {
         int numberOfLocals = stoi(numlocals);
+        currentFunctionName = functionName;
         writeLine("("+functionName+")");
         for (int i = 0; i < numberOfLocals; i++)
         {
@@ -161,6 +163,8 @@ class CodeWriter
            "D=M",
            "@5",
            "D=D-A",
+           "A=D",
+           "D=M",
            "@R13",
            "M=D",
        };
@@ -187,8 +191,7 @@ class CodeWriter
                "@"+to_string(i+1),
                "D=D-A",
                "A=D",
-               "A=M",
-               "D=A",
+               "D=M",
                "@"+locationsToChange[i],
                "M=D",  
            };
@@ -206,8 +209,14 @@ class CodeWriter
     //Look at the various address spaces
     void writeCall(string functionName, string numArgs)
     {
-        string currentReturnAddressLabel = currentFunctionName + "return-address";
-        vector<string> toPush{currentReturnAddressLabel, "LCL", "ARG", "THIS", "THAT"};
+        //Return address?
+        
+        string currentReturnAddressLabel = currentFunctionName + "$return-address";
+        vector<string> toPush{"LCL", "ARG", "THIS", "THAT"};
+        
+        writeLine("@"+currentReturnAddressLabel);
+        writeLine("D=A");
+        writePushCommand();
         for (int i = 0; i < toPush.size(); i++)
         {
             writeLine("@" + toPush[i]);
@@ -474,8 +483,7 @@ class CodeWriter
         writeLine("D=A");
         writeLine("@0");
         writeLine("M=D");
-        writeLine("@Sys.init");
-        writeLine("0; JMP");
+        writeCall("Sys.init",  "0");
 
     }
     void writeLine(string line)
@@ -659,7 +667,8 @@ int main(int argc, char *argv[])
     {
         files.push_back(inputPath);
     }
-    
+
+    // writer.writeInit();
 
     for (int i = 0; i < files.size(); i++)
     {
