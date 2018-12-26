@@ -60,6 +60,7 @@ class CodeWriter
     int labelCount = 0;
     string currentFunctionName = "";
     string currentFileName = "";
+    // map<string, string> functionFileNames;
 
   public:
     CodeWriter(char *path)
@@ -99,6 +100,7 @@ class CodeWriter
 
     void writeLabel(string label)
     {
+        cout<<currentFunctionName+"$"+label;
         writeLine("(" + currentFunctionName + "$" + label + ")");
     }
 
@@ -112,8 +114,7 @@ class CodeWriter
     {
         writePopCommand();
         writeLine("@" + currentFunctionName + "$" + label);
-        writeLine("D=D+1");
-        writeLine("D; JEQ");
+        writeLine("D; JNE");
 
         //check
     }
@@ -121,12 +122,145 @@ class CodeWriter
     void writeFunction(string functionName, string numlocals)
     {
         int numberOfLocals = stoi(numlocals);
+        currentFunctionName = functionName;
+        writeLine("("+functionName+")");
         for (int i = 0; i < numberOfLocals; i++)
         {
-            writePushPop(C_PUSH, "constant", 0);
+            writePushPop(C_PUSH, "constant", "0");
             writePushPop(C_POP, "local", to_string(i));
         }
+
+        // functionFileNames[functionName]=currentFileName;
     }
+
+    void writeReturn()
+    {
+        /*
+        @LCL
+        D=A
+        @5
+        D=D-A
+        A=D
+        A=M
+        D=A
+        @R13
+        M=D
+        @LCL
+        D=A
+        @1
+        D=D-A
+        A=D
+        A=M
+        D=M
+        @THAT
+        M=D
+        @R13
+        0; JMP
+        */
+
+       vector<string> setReturnAddressSequence{
+           "@LCL",
+           "D=M",
+           "@5",
+           "D=D-A",
+           "A=D",
+           "D=M",
+           "@R13",
+           "M=D",
+       };
+
+       writeCommandSequence(setReturnAddressSequence);
+       writePopCommand();
+       writeLine("@ARG") ;
+       writeLine("A=M");
+       writeLine("M=D");
+       writeLine("@ARG");
+       writeLine("D=M");
+       writeLine("D=D+1");
+       writeLine("@SP");
+       writeLine("M=D");
+
+       //Does return not get allocate
+
+       vector<string> locationsToChange{"THAT", "THIS", "ARG", "LCL"};
+       for(int i=0; i<4; i++)
+       {
+           vector<string> changeLocationSequence{
+               "@LCL",
+               "D=M",
+               "@"+to_string(i+1),
+               "D=D-A",
+               "@"+locationsToChange[i],
+               "M=D",  
+           };
+
+           writeCommandSequence(changeLocationSequence);
+       }
+
+       writeLine("@R13");
+       writeLine("A=M");
+       writeLine("0; JMP");
+
+
+
+    }
+    //Look at the various address spaces
+    void writeCall(string functionName, string numArgs)
+    {
+        //Return address?
+        string currentReturnAddressLabel = currentFunctionName + "$return-address";
+        vector<string> toPush{"LCL", "ARG", "THIS", "THAT"};
+        
+        writeLine("@"+currentReturnAddressLabel);
+        writeLine("D=A");
+        writePushCommand();
+        for (int i = 0; i < toPush.size(); i++)
+        {
+            writeLine("@" + toPush[i]);
+            writeLine("D=M");
+            writePushCommand();
+        }
+
+        /*
+        @SP 
+        D=M
+        @5
+        D=D-A
+        @n
+        D=D-A
+        @ARG
+        M=D
+        */
+
+        vector<string> setArgSequence{"@SP",
+                                      "D=M",
+                                      "@5",
+                                      "D=D-A",
+                                      "@" + numArgs,
+                                      "D=D-A",
+                                      "@ARG",
+                                      "M=D"};
+        writeCommandSequence(setArgSequence);
+
+        vector<string> setLCLSequence{
+            "@SP",
+            "D=M",
+            "@LCL",
+            "M=D"};
+
+        writeCommandSequence(setLCLSequence);
+
+        //GOTO FUNCTION
+        writeLine("@" + functionName);
+        writeLine("0; JMP");
+
+        //RETURN ADDRESS
+        writeLine("(" + currentReturnAddressLabel + ")");
+    }
+
+    /*When writing the call function, we should check the filename to whicht he function  belongs
+    using the map. Then, we set SP to the value @FILENAME.0. But the question is would it be filename 0 or filename firstindex of static function. It is probably better
+    fro it to be the latter. We actually don't need this.*/
 
     void writePopCommand()
     {
@@ -309,8 +443,9 @@ class CodeWriter
             writeLine("A=D");
         }
 
-        else if(segment=="static"){
-            writeLine("@"+currentFileName+"."+index);
+        else if (segment == "static")
+        {
+            writeLine("@" + currentFileName + "." + index);
         }
 
         if (commandType == C_PUSH)
@@ -338,6 +473,15 @@ class CodeWriter
                 writeLine("M=D");
             }
         }
+    }
+
+    void writeInit(){
+        writeLine("@256");
+        writeLine("D=A");
+        writeLine("@0");
+        writeLine("M=D");
+        writeCall("Sys.init",  "0");
+
     }
     void writeLine(string line)
     {
@@ -495,6 +639,7 @@ int main(int argc, char *argv[])
 {
     //Interpret as colleciton
     //Each time you start traversing a file, inform codewriter class
+    //Can function be called across files: Yes, functions are global in scope.
     char *inputPath = argv[1];
     char *outputPath = argv[2];
 
@@ -520,9 +665,11 @@ int main(int argc, char *argv[])
         files.push_back(inputPath);
     }
 
+    // writer.writeInit();
+
     for (int i = 0; i < files.size(); i++)
     {
-        const char* filepath = files[i].c_str();
+        const char *filepath = files[i].c_str();
         string filename = fs::path(filepath).filename();
         Parser parser(filepath);
         writer.setCurrentFileName(filename);
@@ -546,6 +693,43 @@ int main(int argc, char *argv[])
                 string index = parser.arg2();
                 writer.writePushPop(parser.commandType(), segment, index);
             }
+
+            if(parser.commandType()==C_FUNCTION){
+                string functionName = parser.arg1();
+                string numberOfLocals = parser.arg2();
+                writer.writeFunction(functionName, numberOfLocals);
+            }
+
+            if(parser.commandType()==C_CALL)
+            {
+                string functionName = parser.arg1();
+                string numberOfArgs = parser.arg2();
+                writer.writeCall(functionName, numberOfArgs);
+            }
+
+            if(parser.commandType()==C_GOTO)
+            {
+                string label = parser.arg1();
+                writer.writeGoto(label);
+            }
+
+            if(parser.commandType()==C_LABEL)
+            {
+                string label = parser.arg1();
+                writer.writeLabel(label);
+            }
+
+            if(parser.commandType()==C_IF)
+            {
+                string label = parser.arg1();
+                writer.writeIf(label);
+            }
+
+            if(parser.commandType()==C_RETURN)
+            {
+                writer.writeReturn();
+            }
+
         }
     }
 }
