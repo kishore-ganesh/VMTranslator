@@ -1,0 +1,5 @@
+push constant 8 
+push constant 9
+add
+push pointer 1
+pop static 2
