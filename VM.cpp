@@ -60,6 +60,7 @@ class CodeWriter
     int labelCount = 0;
     string currentFunctionName = "";
     string currentFileName = "";
+    int functionsCalledTillNow = 0;
     // map<string, string> functionFileNames;
 
   public:
@@ -119,6 +120,8 @@ class CodeWriter
         //check
     }
 
+    //Local Variable space allocation
+
     void writeFunction(string functionName, string numlocals)
     {
         int numberOfLocals = stoi(numlocals);
@@ -128,6 +131,7 @@ class CodeWriter
         {
             writePushPop(C_PUSH, "constant", "0");
             writePushPop(C_POP, "local", to_string(i));
+            writePushPop(C_PUSH, "local", to_string(i));
         }
 
         // functionFileNames[functionName]=currentFileName;
@@ -207,11 +211,13 @@ class CodeWriter
 
     }
     //Look at the various address spaces
+    //Our starting local trhing
     void writeCall(string functionName, string numArgs)
     {
         //Return address?
         
-        string currentReturnAddressLabel = currentFunctionName + "$return-address";
+        string currentReturnAddressLabel = currentFunctionName + "$return-address"+to_string(functionsCalledTillNow);
+        functionsCalledTillNow++;
         vector<string> toPush{"LCL", "ARG", "THIS", "THAT"};
         
         writeLine("@"+currentReturnAddressLabel);
@@ -481,7 +487,7 @@ class CodeWriter
     void writeInit(){
         writeLine("@256");
         writeLine("D=A");
-        writeLine("@0");
+        writeLine("@SP");
         writeLine("M=D");
         writeCall("Sys.init",  "0");
 
@@ -668,7 +674,7 @@ int main(int argc, char *argv[])
         files.push_back(inputPath);
     }
 
-    // writer.writeInit();
+    writer.writeInit();
 
     for (int i = 0; i < files.size(); i++)
     {
