@@ -742,3 +742,6 @@ int main(int argc, char *argv[])
         }
     }
 }
+
+//1. Key takeaways: UNique labels
+//2. Space allocation
